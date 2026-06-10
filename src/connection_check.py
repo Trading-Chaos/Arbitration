@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from .spread_scanner import DEFAULT_TOP
 from .universe import exchange_names, fetch_exchange_universe, top_liquid_tickers, valid_tickers
 
 
@@ -26,7 +27,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Check public market-data connectivity.")
     parser.add_argument("--exchanges", help="Comma-separated list, default: bybit,bitget,okx,mexc")
     parser.add_argument("--quote", default="USDT")
-    parser.add_argument("--top", type=int, default=300)
+    parser.add_argument("--top", type=int, default=DEFAULT_TOP)
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
 

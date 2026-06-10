@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from time import sleep
 
-from .spread_scanner import SpreadRow, scan_spreads, write_csv
+from .spread_scanner import DEFAULT_TOP, SpreadRow, format_funding_edge, scan_spreads, write_csv
 from .universe import exchange_names
 
 
@@ -14,12 +14,15 @@ def filter_rows(
     min_spread: float,
     max_spread: float | None,
     min_volume: float | None,
+    require_funding_favorable: bool = False,
 ) -> list[SpreadRow]:
     filtered = [row for row in rows if row.spread_pct >= min_spread]
     if max_spread is not None:
         filtered = [row for row in filtered if row.spread_pct <= max_spread]
     if min_volume is not None:
         filtered = [row for row in filtered if row.min_quote_volume_24h >= min_volume]
+    if require_funding_favorable:
+        filtered = [row for row in filtered if row.funding_status == "favorable"]
     return filtered
 
 
@@ -36,6 +39,7 @@ def print_spread_alerts(rows: list[SpreadRow], limit: int, started_at: datetime)
             f"({row.long_symbol}) ask={row.long_ask:.8g} -> "
             f"sell/short {row.short_exchange} ({row.short_symbol}) "
             f"bid={row.short_bid:.8g} | spread={row.spread_pct:.4f}% "
+            f"| funding={format_funding_edge(row)} {row.funding_status} "
             f"| minVol24h={row.min_quote_volume_24h:.2f}"
         )
 
@@ -57,6 +61,7 @@ def run_once(args: argparse.Namespace) -> list[SpreadRow]:
         min_spread=args.min_spread,
         max_spread=args.max_spread,
         min_volume=args.min_volume,
+        require_funding_favorable=args.require_funding_favorable,
     )
     print_spread_alerts(rows, args.limit, started_at)
     if args.csv:
@@ -71,12 +76,13 @@ def main() -> None:
     )
     parser.add_argument("--exchanges", help="Comma-separated list, default: bybit,bitget,okx,mexc")
     parser.add_argument("--quote", default="USDT")
-    parser.add_argument("--top", type=int, default=300)
+    parser.add_argument("--top", type=int, default=DEFAULT_TOP)
     parser.add_argument("--interval", type=int, default=300, help="Seconds between checks.")
     parser.add_argument("--limit", type=int, default=50, help="Max terminal rows per check.")
-    parser.add_argument("--min-spread", type=float, default=0.3)
+    parser.add_argument("--min-spread", type=float, default=0.5)
     parser.add_argument("--max-spread", type=float, default=5.0)
     parser.add_argument("--min-volume", type=float, default=1_000_000)
+    parser.add_argument("--require-funding-favorable", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--csv", default="data/spreads_latest.csv")
     parser.add_argument("--once", action="store_true", help="Run one check and exit.")
@@ -90,7 +96,8 @@ def main() -> None:
         "Spread monitor started: "
         f"top={args.top}, interval={args.interval}s, "
         f"min_spread={args.min_spread}%, max_spread={args.max_spread}%, "
-        f"min_volume={args.min_volume}"
+        f"min_volume={args.min_volume}, "
+        f"require_funding_favorable={args.require_funding_favorable}"
     )
     while True:
         try:

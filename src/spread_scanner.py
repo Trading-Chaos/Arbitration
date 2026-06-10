@@ -15,6 +15,9 @@ from .universe import (
 )
 
 
+DEFAULT_TOP = 1000
+
+
 @dataclass(frozen=True)
 class SpreadRow:
     base: str
@@ -31,6 +34,8 @@ class SpreadRow:
     min_quote_volume_24h: float
     long_funding_rate: float | None
     short_funding_rate: float | None
+    funding_edge_pct: float | None
+    funding_status: str
     long_timestamp_ms: int | None
     short_timestamp_ms: int | None
 
@@ -41,7 +46,7 @@ SPREAD_FIELDNAMES = list(SpreadRow.__dataclass_fields__.keys())
 def scan_spreads(
     exchanges: list[str],
     quote: str = "USDT",
-    top: int = 300,
+    top: int = DEFAULT_TOP,
     timeout: float = 10.0,
 ) -> tuple[list[SpreadRow], dict[str, list[TickerQuote]]]:
     top_by_exchange = fetch_top_tickers(exchanges, quote, top, timeout)
@@ -101,6 +106,10 @@ def build_spread_row(
     spread_pct = (short_ticker.bid / long_ticker.ask - 1) * 100
     long_volume = long_ticker.quote_volume_24h or 0.0
     short_volume = short_ticker.quote_volume_24h or 0.0
+    funding_edge_pct = calculate_funding_edge_pct(
+        long_ticker.funding_rate,
+        short_ticker.funding_rate,
+    )
     return SpreadRow(
         base=long_ticker.base,
         pair=f"{long_ticker.exchange}/{short_ticker.exchange}",
@@ -116,9 +125,31 @@ def build_spread_row(
         min_quote_volume_24h=min(long_volume, short_volume),
         long_funding_rate=long_ticker.funding_rate,
         short_funding_rate=short_ticker.funding_rate,
+        funding_edge_pct=funding_edge_pct,
+        funding_status=funding_status(funding_edge_pct),
         long_timestamp_ms=long_ticker.timestamp_ms,
         short_timestamp_ms=short_ticker.timestamp_ms,
     )
+
+
+def calculate_funding_edge_pct(
+    long_funding_rate: float | None,
+    short_funding_rate: float | None,
+) -> float | None:
+    if long_funding_rate is None or short_funding_rate is None:
+        return None
+    # Positive funding usually means longs pay shorts.
+    return (short_funding_rate - long_funding_rate) * 100
+
+
+def funding_status(funding_edge_pct: float | None) -> str:
+    if funding_edge_pct is None:
+        return "unknown"
+    if funding_edge_pct > 0:
+        return "favorable"
+    if funding_edge_pct < 0:
+        return "against"
+    return "flat"
 
 
 def write_csv(path: Path, rows: list[SpreadRow]) -> None:
@@ -132,7 +163,8 @@ def write_csv(path: Path, rows: list[SpreadRow]) -> None:
 def print_rows(rows: list[SpreadRow], limit: int) -> None:
     header = (
         f"{'#':>3} {'base':<12} {'long':<7} {'short':<7} "
-        f"{'ask':>14} {'bid':>14} {'spread%':>10} {'minVol24h':>14}"
+        f"{'ask':>14} {'bid':>14} {'spread%':>10} "
+        f"{'funding':>10} {'minVol24h':>14}"
     )
     print(header)
     print("-" * len(header))
@@ -140,8 +172,15 @@ def print_rows(rows: list[SpreadRow], limit: int) -> None:
         print(
             f"{index:>3} {row.base:<12} {row.long_exchange:<7} {row.short_exchange:<7} "
             f"{row.long_ask:>14.8g} {row.short_bid:>14.8g} "
-            f"{row.spread_pct:>10.4f} {row.min_quote_volume_24h:>14.2f}"
+            f"{row.spread_pct:>10.4f} {format_funding_edge(row):>10} "
+            f"{row.min_quote_volume_24h:>14.2f}"
         )
+
+
+def format_funding_edge(row: SpreadRow) -> str:
+    if row.funding_edge_pct is None:
+        return "unknown"
+    return f"{row.funding_edge_pct:+.4f}%"
 
 
 def summarize_top(top_by_exchange: dict[str, list[TickerQuote]]) -> None:
@@ -162,12 +201,13 @@ def main() -> None:
     )
     parser.add_argument("--exchanges", help="Comma-separated list, default: bybit,bitget,okx,mexc")
     parser.add_argument("--quote", default="USDT")
-    parser.add_argument("--top", type=int, default=300)
+    parser.add_argument("--top", type=int, default=DEFAULT_TOP)
     parser.add_argument("--limit", type=int, default=50)
-    parser.add_argument("--min-spread", type=float, default=None)
+    parser.add_argument("--min-spread", type=float, default=0.5)
     parser.add_argument("--max-spread", type=float, default=None)
     parser.add_argument("--min-volume", type=float, default=None)
-    parser.add_argument("--csv", type=Path, default=Path("data/spreads_top300.csv"))
+    parser.add_argument("--require-funding-favorable", action="store_true")
+    parser.add_argument("--csv", type=Path, default=Path("data/spreads_top1000.csv"))
     parser.add_argument("--timeout", type=float, default=10.0)
     args = parser.parse_args()
 
@@ -184,6 +224,8 @@ def main() -> None:
         rows = [row for row in rows if row.spread_pct <= args.max_spread]
     if args.min_volume is not None:
         rows = [row for row in rows if row.min_quote_volume_24h >= args.min_volume]
+    if args.require_funding_favorable:
+        rows = [row for row in rows if row.funding_status == "favorable"]
 
     summarize_top(top_by_exchange)
     print(f"\nPairwise spreads: {len(rows)} rows")

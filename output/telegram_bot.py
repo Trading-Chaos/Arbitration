@@ -11,7 +11,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from src.spread_monitor import filter_rows
-from src.spread_scanner import SpreadRow, scan_spreads, write_csv
+from src.spread_scanner import DEFAULT_TOP, SpreadRow, format_funding_edge, scan_spreads, write_csv
 from src.universe import exchange_names
 
 
@@ -117,6 +117,7 @@ def build_alert_text(
     min_spread: float,
     max_spread: float | None,
     min_volume: float | None,
+    require_funding_favorable: bool,
 ) -> str:
     timestamp = started_at.strftime("%Y-%m-%d %H:%M:%S")
     shown = rows[:limit]
@@ -124,6 +125,7 @@ def build_alert_text(
         f"Spread Arbitrage | {timestamp}",
         f"Top-{top} scan: найдено разлетов {len(rows)}",
         f"Filters: spread >= {min_spread:.4g}%, max <= {max_spread if max_spread is not None else 'off'}%, minVol24h >= {min_volume if min_volume is not None else 'off'}",
+        f"Funding filter: {'favorable only' if require_funding_favorable else 'off'}",
         "",
     ]
 
@@ -142,6 +144,7 @@ def build_alert_text(
             f"   SHORT {row.short_exchange} {row.short_symbol} bid={row.short_bid:.8g}"
         )
         lines.append(f"   minVol24h={row.min_quote_volume_24h:.2f}")
+        lines.append(f"   funding={format_funding_edge(row)} {row.funding_status}")
 
     if len(rows) > limit:
         lines.append("")
@@ -163,6 +166,7 @@ def collect_rows(args: argparse.Namespace) -> list[SpreadRow]:
         min_spread=args.min_spread,
         max_spread=args.max_spread,
         min_volume=args.min_volume,
+        require_funding_favorable=args.require_funding_favorable,
     )
 
 
@@ -177,6 +181,7 @@ def run_once(args: argparse.Namespace, token: str | None, chat_id: str | None) -
         min_spread=args.min_spread,
         max_spread=args.max_spread,
         min_volume=args.min_volume,
+        require_funding_favorable=args.require_funding_favorable,
     )
 
     print(text)
@@ -225,12 +230,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--exchanges", help="Comma-separated list, default: bybit,bitget,okx,mexc")
     parser.add_argument("--quote", default="USDT")
-    parser.add_argument("--top", type=int, default=300)
+    parser.add_argument("--top", type=int, default=DEFAULT_TOP)
     parser.add_argument("--interval", type=int, default=300, help="Seconds between Telegram alerts.")
     parser.add_argument("--limit", type=int, default=10, help="Max tickers per Telegram message.")
-    parser.add_argument("--min-spread", type=float, default=0.3)
+    parser.add_argument("--min-spread", type=float, default=0.5)
     parser.add_argument("--max-spread", type=float, default=5.0)
     parser.add_argument("--min-volume", type=float, default=1_000_000)
+    parser.add_argument("--require-funding-favorable", action="store_true")
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--telegram-timeout", type=float, default=20.0)
     parser.add_argument("--csv", default="data/telegram_spreads_latest.csv")
@@ -270,7 +276,8 @@ def main() -> None:
         "Telegram spread bot started: "
         f"top={args.top}, interval={args.interval}s, limit={args.limit}, "
         f"min_spread={args.min_spread}%, max_spread={args.max_spread}%, "
-        f"min_volume={args.min_volume}"
+        f"min_volume={args.min_volume}, "
+        f"require_funding_favorable={args.require_funding_favorable}"
     )
     while True:
         try:

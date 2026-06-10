@@ -29,10 +29,10 @@
 Из папки проекта:
 
 ```bash
-python -m brokers.bybit BTCUSDT
-python -m brokers.bitget BTCUSDT
-python -m brokers.okx BTC-USDT-SWAP
-python -m brokers.mexc BTC_USDT
+python3 -m brokers.bybit BTCUSDT
+python3 -m brokers.bitget BTCUSDT
+python3 -m brokers.okx BTC-USDT-SWAP
+python3 -m brokers.mexc BTC_USDT
 ```
 
 Форматы символов:
@@ -44,4 +44,4 @@ python -m brokers.mexc BTC_USDT
 
 Для OKX можно поменять API-домен через `--base-url`, если аккаунт или регион требует отдельный домен.
 
-Логика проверки подключения, выбора top-300, попарного сравнения spread и периодического мониторинга находится в `src`.
+Логика проверки подключения, выбора top-1000, попарного сравнения spread и периодического мониторинга находится в `src`.

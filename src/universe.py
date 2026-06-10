@@ -247,7 +247,7 @@ def valid_tickers(tickers: list[TickerQuote]) -> list[TickerQuote]:
     ]
 
 
-def top_liquid_tickers(tickers: list[TickerQuote], limit: int = 300) -> list[TickerQuote]:
+def top_liquid_tickers(tickers: list[TickerQuote], limit: int = 1000) -> list[TickerQuote]:
     by_base: dict[str, TickerQuote] = {}
     for ticker in valid_tickers(tickers):
         previous = by_base.get(ticker.base)
